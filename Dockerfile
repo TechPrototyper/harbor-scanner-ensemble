@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
-# Stage 1: build the adapter. Standard-library-only, so there is no
-# go.sum to vendor; CGO_ENABLED=0 produces a static binary.
+# Stage 1: build the ensemble binary. CGO_ENABLED=0 produces a static
+# binary; the only dependency is our own toolkit module.
 # golang:1.27: the adapter binary is itself scanned, and the previous
 # builder carried 66 findings, one of them critical (CVE-2026-27143,
 # fixed in 1.25.9).
@@ -11,10 +11,11 @@ FROM golang:1.27 AS builder
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 WORKDIR /src
-COPY go.mod ./
+# The shared implementation lives in harbor-scanner-toolkit, so the module
+# cache is the first layer: it only changes when go.mod/go.sum do.
+COPY go.mod go.sum ./
+RUN go mod download
 COPY cmd/ cmd/
-COPY internal/ internal/
-COPY pkg/ pkg/
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /out/ensemble ./cmd/ensemble
 
