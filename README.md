@@ -69,6 +69,11 @@ push**, **prevent vulnerable images from running**, and a severity
 threshold. The CVE allowlist is then your exception mechanism, and it now
 applies to both engines at once.
 
+If the pod does not come up, or the release never applies, read
+[docs/DEPLOYING-ON-KUBERNETES.md](docs/DEPLOYING-ON-KUBERNETES.md). Three
+failures cost us a deployment each, and none of them is reported by
+`helm lint` or `helm template`.
+
 ## Configuration
 
 | Variable | Default | Meaning |
