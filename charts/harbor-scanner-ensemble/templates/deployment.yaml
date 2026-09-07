@@ -51,6 +51,13 @@ spec:
           # the API server rejects (duplicate entries for key [name="HOME"]).
           - name: HOME
             value: {{ .Values.dbCacheDir | quote }}
+          # Both engines also write to the OS temp directory while fetching
+          # their database - grype a listing file, trivy a whole temp dir -
+          # and neither honours its cache-dir setting for that. On a
+          # read-only root filesystem that fails, so TMPDIR points at the
+          # writable volume too. Verified for both engines in-cluster.
+          - name: TMPDIR
+            value: {{ .Values.dbCacheDir | quote }}
           {{- include "harbor-scanner-ensemble.dbEnv" . | nindent 10 }}
           volumeMounts:
             {{- include "harbor-scanner-ensemble.dbMount" . | nindent 10 }}
@@ -73,6 +80,8 @@ spec:
           env:
           - name: HOME
             value: {{ .Values.trivyCacheDir | quote }}
+          - name: TMPDIR
+            value: {{ .Values.trivyCacheDir | quote }}
           {{- include "harbor-scanner-ensemble.trivyEnv" . | nindent 10 }}
           volumeMounts:
             {{- include "harbor-scanner-ensemble.trivyMount" . | nindent 10 }}
@@ -85,6 +94,10 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
           env:
             - name: HOME
+              value: {{ .Values.dbCacheDir | quote }}
+            # The adapter runs the engines per scan, so it needs the same
+            # writable temp directory the init containers need.
+            - name: TMPDIR
               value: {{ .Values.dbCacheDir | quote }}
             {{- include "harbor-scanner-ensemble.scannerEnv" . | nindent 12 }}
           ports:

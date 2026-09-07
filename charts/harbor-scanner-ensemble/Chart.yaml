@@ -4,8 +4,8 @@ description: >-
   Harbor Pluggable Scanner Adapter that runs Grype and Trivy in parallel and
   merges their findings into one deterministic report.
 type: application
-version: 0.1.1
-appVersion: "0.1.1"
+version: 0.1.2
+appVersion: "0.1.2"
 keywords:
   - harbor
   - scanner

@@ -57,9 +57,12 @@ jobs:
                       if dup:
                           print(f"engines={engines} container={c['name']}: duplicate env {dup}")
                           bad = True
-                      if not any(e["name"] == "HOME" for e in env):
-                          print(f"engines={engines} container={c['name']}: HOME unset on a read-only root filesystem")
-                          bad = True
+                      for key in ("HOME", "TMPDIR"):
+                          if not any(e["name"] == key for e in env):
+                              print(f"engines={engines} container={c['name']}: {key} unset - "
+                                    "both engines write there while fetching their database, "
+                                    "and the root filesystem is read-only")
+                              bad = True
           sys.exit(1 if bad else 0)
           EOF
 
