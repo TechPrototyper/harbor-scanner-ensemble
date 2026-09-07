@@ -32,6 +32,37 @@ jobs:
             echo "$out" | grep -q -- "$want" || { echo "missing in rendered chart: $want"; exit 1; }
           done
           echo "$out" | grep -q 'replicas: 1' || { echo "must render exactly one replica"; exit 1; }
+      - name: no duplicate env keys in any container
+        # A Deployment with two entries for the same env key is rejected by
+        # the API server at apply time, not by helm lint or template. This
+        # shipped once (two HOME entries in the adapter container) and cost
+        # a failed release.
+        run: |
+          python3 - <<'EOF'
+          import subprocess, yaml, collections, sys
+          bad = False
+          for engines in ("grype", "grype,trivy"):
+              out = subprocess.run(
+                  ["helm", "template", "t", "charts/harbor-scanner-ensemble",
+                   "--set", "config.engines=" + engines.replace(",", "\\,")],
+                  capture_output=True, text=True, check=True).stdout
+              for doc in yaml.safe_load_all(out):
+                  if not doc or doc.get("kind") != "Deployment":
+                      continue
+                  spec = doc["spec"]["template"]["spec"]
+                  for c in (spec.get("initContainers") or []) + spec["containers"]:
+                      env = c.get("env") or []
+                      names = [e["name"] for e in env]
+                      dup = [n for n, k in collections.Counter(names).items() if k > 1]
+                      if dup:
+                          print(f"engines={engines} container={c['name']}: duplicate env {dup}")
+                          bad = True
+                      if not any(e["name"] == "HOME" for e in env):
+                          print(f"engines={engines} container={c['name']}: HOME unset on a read-only root filesystem")
+                          bad = True
+          sys.exit(1 if bad else 0)
+          EOF
+
       - name: chart refuses more than one replica
         run: |
           if helm template t charts/harbor-scanner-ensemble --set replicaCount=2 >/dev/null 2>&1; then

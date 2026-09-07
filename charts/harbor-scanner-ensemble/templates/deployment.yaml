@@ -44,7 +44,14 @@ spec:
             - db
             - update
           env:
-            {{- include "harbor-scanner-ensemble.dbEnv" . | nindent 10 }}
+          # Engines fall back to HOME when their explicit cache variable is
+          # unset, and the root filesystem is read-only. Exactly one HOME per
+          # container: emitting it from both engine helpers produced a
+          # Deployment with two HOME entries in the adapter container, which
+          # the API server rejects (duplicate entries for key [name="HOME"]).
+          - name: HOME
+            value: {{ .Values.dbCacheDir | quote }}
+          {{- include "harbor-scanner-ensemble.dbEnv" . | nindent 10 }}
           volumeMounts:
             {{- include "harbor-scanner-ensemble.dbMount" . | nindent 10 }}
           securityContext:
@@ -64,7 +71,9 @@ spec:
             - --download-db-only
             - --quiet
           env:
-            {{- include "harbor-scanner-ensemble.trivyEnv" . | nindent 10 }}
+          - name: HOME
+            value: {{ .Values.trivyCacheDir | quote }}
+          {{- include "harbor-scanner-ensemble.trivyEnv" . | nindent 10 }}
           volumeMounts:
             {{- include "harbor-scanner-ensemble.trivyMount" . | nindent 10 }}
           securityContext:
@@ -75,6 +84,8 @@ spec:
           image: {{ include "harbor-scanner-ensemble.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
           env:
+            - name: HOME
+              value: {{ .Values.dbCacheDir | quote }}
             {{- include "harbor-scanner-ensemble.scannerEnv" . | nindent 12 }}
           ports:
             - name: http

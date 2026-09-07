@@ -64,10 +64,6 @@ the process env to the grype child).
 {{- define "harbor-scanner-ensemble.dbEnv" -}}
 - name: GRYPE_DB_CACHE_DIR
   value: {{ .Values.dbCacheDir | quote }}
-# grype resolves ~/.cache and ~/.grype.yaml via HOME; point it at the only
-# writable path so it never touches the read-only root filesystem.
-- name: HOME
-  value: {{ .Values.dbCacheDir | quote }}
 - name: GRYPE_CHECK_FOR_APP_UPDATE
   value: "false"
 {{- end -}}
@@ -118,10 +114,7 @@ the process env to the trivy child).
 {{- define "harbor-scanner-ensemble.trivyEnv" -}}
 - name: TRIVY_CACHE_DIR
   value: {{ .Values.trivyCacheDir | quote }}
-# trivy resolves its cache under HOME; point it at the only writable path
-# so it never touches the read-only root filesystem.
-- name: HOME
-  value: {{ .Values.trivyCacheDir | quote }}
+
 {{- end -}}
 
 {{/*
