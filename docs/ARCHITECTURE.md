@@ -142,7 +142,8 @@ Damit ist jede Merge-Entscheidung im Nachhinein nachvollziehbar, ohne die Rohber
   danach per `SCANNER_DB_REFRESH_INTERVAL` auffrischen, Ablage in einem `emptyDir`. Nicht pro
   Scan laden, das war im Skript-Ansatz die Hauptlaufzeit.
 * **Ressourcen:** zwei DBs im Speicher sind der Kostenpunkt. Requests klein halten,
-  Limits großzügig; neo26 steht bei 99 Prozent CPU-Requests.
+  Limits großzügig, Requests klein: auf CPU-knappen Knoten bleibt der Pod
+  sonst Pending.
 * Ein Replica. Der Job-Store ist im Speicher, das bleibt so.
 
 ## 7. Warum kein Modell im Scan-Pfad
@@ -284,7 +285,7 @@ Zweck des Multi-Engine-Betriebs.
 
 ## 13. Cluster-Test 07.09.2026, echtes Image, echte Engines
 
-Image `10.1.0.243/platform/harbor-scanner-grype:v2026.09.07-2` (im Cluster
+Image `<registry>/platform/harbor-scanner-ensemble:v2026.09.07-2` (im Cluster
 per Kaniko gebaut), Pod in ns `harbor`, Scan des Adapter-Images selbst
 ueber `http://harbor-core:80`.
 
@@ -304,48 +305,23 @@ Welcher Scanner mehr findet, haengt also vom Datenbankstand ab, nicht vom
 Scanner. Das ist das staerkste Argument fuer den Ensemble-Betrieb, und es
 war vor dem Test nicht bekannt.
 
-## 14. Nebenbefund: Harbors eingebautes Scannen war nie in Betrieb
+## 14. Voraussetzungen fuer den Betrieb als Gate
 
-Beim Versuch, eine Vergleichsbasis zu erzeugen, schlug der Scan des
-eingebauten Scanners fehl:
+Ein Scanner allein blockiert nichts. Pro Projekt braucht es:
 
-```
-invalid argument "[[os library]]" for "--pkg-types" flag:
-must be one of ["os" "library"]
-```
+| Einstellung | Wirkung |
+|---|---|
+| Scan bei Push | sonst entsteht nie ein Bericht |
+| Pull blockieren | die eigentliche Sperre |
+| Schwelle, z. B. Critical | ab wann gesperrt wird |
+| Scanner zugewiesen | Harbor fuehrt genau einen pro Projekt |
 
-Ursache ist die Harbor-HelmRelease: `trivy.vulnType: [os, library]` wird
-vom Chart als `SCANNER_TRIVY_VULN_TYPE=[os library]` gerendert, also mit
-Klammern, und so an Trivy weitergereicht. Richtig waere `os,library`.
-Dasselbe Muster bei `SCANNER_TRIVY_SECURITY_CHECKS=[vuln]`.
-Betroffen ist `goharbor/trivy-adapter-photon:v2.15.2`.
+Die CVE-Allowlist ist der Ausnahmemechanismus dazu. Ein Eintrag mit
+Ablaufdatum gilt fuer den gesamten Bericht, also fuer alle Engines
+gleichzeitig. Genau das macht den Ensemble-Ansatz betrieblich tragfaehig:
+eine Ausnahmeliste statt einer pro Scanner.
 
-**Das ist eine Luecke, kein Ausfall.** Nachgezaehlt ueber die Harbor-API
-am 07.09.2026: 107 Artefakte in sechs Projekten, **null** davon mit einem
-erfolgreichen Scan; `auto_scan`, `prevent_vul` und `severity` sind in
-keinem Projekt gesetzt. Harbors eingebautes Scannen hat also nie
-gelaufen, es hat nicht aufgehoert zu laufen. Gescannt wurde bisher
-ausschliesslich ueber `scripts/scan-image.sh` mit Wegwerf-Pods und dem
-Report-Portal, deshalb ist der Konfigurationsfehler nie aufgefallen.
-
-Der eingebaute Trivy taugt damit auch nicht als Vergleichsbasis: er hat
-noch nie einen Bericht erzeugt. Die Basis ist der eigenstaendige Trivy
-aus `scan-image.sh`, dessen 94 Funde am Adapter-Image als Fixture
-vorliegen.
-
-## 15. Was der Rollout ausser dem Scanner braucht
-
-Ein Scanner allein blockiert nichts. Damit das Ensemble als Gate wirkt,
-muessen pro Projekt gesetzt sein:
-
-| Einstellung | Wert | Wirkung |
-|---|---|---|
-| `auto_scan` | `true` | Scan bei jedem Push, sonst gibt es nie einen Bericht |
-| `prevent_vul` | `true` | Pull wird blockiert |
-| `severity` | z. B. `Critical` | Schwelle, ab der blockiert wird |
-| Scanner-Zuweisung | Ensemble | Harbor fuehrt genau einen Scanner pro Projekt |
-
-Die CVE-Allowlist ist der Ausnahmemechanismus dazu: ein Eintrag mit
-Ablaufdatum gilt fuer den ganzen Bericht, also fuer alle Engines
-gleichzeitig. Das ist die "eine Stelle", die das Ensemble ueberhaupt
-erst ermoeglicht.
+Die Pull-Sperre sollte projektweise scharf geschaltet werden, nicht
+ueberall auf einmal. Sie verhindert auch das Ziehen bereits laufender
+Images, ein Pod-Neustart kann dadurch fehlschlagen, bevor jemand die
+Befunde gesehen hat.
