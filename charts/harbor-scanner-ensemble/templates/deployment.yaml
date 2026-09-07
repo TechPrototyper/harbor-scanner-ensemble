@@ -1,0 +1,116 @@
+{{- /*
+The adapter keeps jobs in memory, so exactly one replica is required.
+Refuse to render otherwise instead of silently deploying a broken state.
+*/}}
+{{- if gt (float64 .Values.replicaCount) (float64 1) }}
+{{- fail "replicaCount must be 1: the in-memory job store cannot be shared across replicas" }}
+{{- end }}
+{{- $hasTrivy := has "trivy" (splitList "," .Values.config.engines) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "harbor-scanner-ensemble.fullname" . }}
+  labels:
+    {{- include "harbor-scanner-ensemble.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "harbor-scanner-ensemble.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "harbor-scanner-ensemble.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podLabels }}
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "harbor-scanner-ensemble.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      # Pull the engine DBs into their emptyDirs before the adapter starts
+      # so the first scan does not pay the download.
+      initContainers:
+        - name: grype-db
+          image: {{ include "harbor-scanner-ensemble.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          command:
+            - /usr/bin/grype
+          args:
+            - db
+            - update
+          env:
+            {{- include "harbor-scanner-ensemble.dbEnv" . | nindent 10 }}
+          volumeMounts:
+            {{- include "harbor-scanner-ensemble.dbMount" . | nindent 10 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+        {{- if $hasTrivy }}
+        - name: trivy-db
+          image: {{ include "harbor-scanner-ensemble.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          command:
+            - /usr/bin/trivy
+          args:
+            # `trivy db` does not exist: verified against aquasec/trivy:0.74.0
+            # in-cluster, the CLI has no db subcommand at all. The documented
+            # way to pre-warm the database is a scan invocation that stops
+            # after the download.
+            - image
+            - --download-db-only
+            - --quiet
+          env:
+            {{- include "harbor-scanner-ensemble.trivyEnv" . | nindent 10 }}
+          volumeMounts:
+            {{- include "harbor-scanner-ensemble.trivyMount" . | nindent 10 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+        {{- end }}
+      containers:
+        - name: adapter
+          image: {{ include "harbor-scanner-ensemble.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          env:
+            {{- include "harbor-scanner-ensemble.scannerEnv" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probePath }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probePath }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            {{- include "harbor-scanner-ensemble.dbMount" . | nindent 12 }}
+            {{- if $hasTrivy }}
+            {{- include "harbor-scanner-ensemble.trivyMount" . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: grype-db
+          emptyDir: {}
+        {{- if $hasTrivy }}
+        - name: trivy-db
+          emptyDir: {}
+        {{- end }}

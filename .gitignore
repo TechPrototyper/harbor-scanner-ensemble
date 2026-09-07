@@ -1,0 +1,6 @@
+/bin/
+/dist/
+*.test
+__pycache__/
+.harness/
+.qwen/
